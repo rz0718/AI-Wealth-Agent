@@ -9,7 +9,7 @@ Requires a .env file with:
 """
 import json
 import os
-import sys
+from datetime import datetime
 from pathlib import Path
 
 import anthropic
@@ -18,7 +18,36 @@ from config import ANTHROPIC_API_KEY
 from tool_registry import TOOL_HANDLERS
 from tool_schemas import TOOL_SCHEMAS
 
-MODEL = "claude-opus-4-6"
+LOGS_DIR = Path(__file__).parent / "logs"
+_log_file = None
+
+
+def _setup_log() -> Path:
+    global _log_file
+    LOGS_DIR.mkdir(exist_ok=True)
+    log_path = LOGS_DIR / f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    _log_file = log_path.open("w", buffering=1)  # line-buffered
+    return log_path
+
+
+def _track(label: str, detail: str = "") -> None:
+    if _log_file is None:
+        return
+    ts = datetime.now().strftime("%H:%M:%S")
+    line = f"{ts}  [{label}]"
+    if detail:
+        line += f" {detail}"
+    _log_file.write(line + "\n")
+
+
+def _log_message(role: str, content: str) -> None:
+    """Write a labeled multi-line message block to the log."""
+    if _log_file is None or not content.strip():
+        return
+    ts = datetime.now().strftime("%H:%M:%S")
+    _log_file.write(f"\n{ts}  [{role}]\n{content}\n{'─' * 60}\n")
+
+MODEL = "claude-sonnet-4-6"
 MEMORY_FILE = Path(__file__).parent / "memory" / "user_memory.md"
 SKILL_INDEX_FILE = Path(__file__).parent / "skills" / "index.md"
 
@@ -53,16 +82,33 @@ def _load_memory() -> str:
 
 
 def _dispatch_tool(tool_name: str, tool_input: dict) -> str:
+    args_preview = ", ".join(f"{k}={v!r}" for k, v in tool_input.items()) if tool_input else ""
+    _track(f"tool → {tool_name}", args_preview)
+
     handler = TOOL_HANDLERS.get(tool_name)
     if not handler:
-        return json.dumps({"status": "error", "message": f"Unknown tool: {tool_name}"})
+        result = json.dumps({"status": "error", "message": f"Unknown tool: {tool_name}"})
+    else:
+        try:
+            result = handler(**tool_input)
+        except Exception as e:
+            result = json.dumps({"status": "error", "message": str(e)})
+
     try:
-        return handler(**tool_input)
-    except Exception as e:
-        return json.dumps({"status": "error", "message": str(e)})
+        parsed = json.loads(result)
+        count = parsed.get("count", "")
+        status = parsed.get("status", "")
+        summary = f"status={status}" + (f", count={count}" if count != "" else "")
+    except Exception:
+        summary = result[:120]
+    _track(f"tool ← {tool_name}", summary)
+    return result
 
 
 def run():
+    log_path = _setup_log()
+    print(f"Logging to {log_path}  (tail -f {log_path} to follow)\n")
+
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     messages = []
 
@@ -73,15 +119,20 @@ def run():
             user_input = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye.")
+            if _log_file:
+                _log_file.close()
             break
 
         if user_input.lower() in ("quit", "exit", "q"):
             print("Goodbye.")
+            if _log_file:
+                _log_file.close()
             break
 
         if not user_input:
             continue
 
+        _log_message("user", user_input)
         messages.append({"role": "user", "content": user_input})
 
         memory_section = _load_memory()
@@ -89,10 +140,13 @@ def run():
         system = SYSTEM_PROMPT.format(memory_section=memory_section + skill_index)
 
         # Agentic loop — keep calling until stop_reason is "end_turn"
+        step = 0
         while True:
+            step += 1
+            _track(f"step {step}", f"calling model ({MODEL})")
             response = client.messages.create(
                 model=MODEL,
-                max_tokens=4096,
+                max_tokens=8192,
                 thinking={"type": "adaptive"},
                 system=[
                     {
@@ -106,11 +160,15 @@ def run():
             )
 
             # Collect text for display and tool calls to execute
+            _track(f"step {step} done", f"stop_reason={response.stop_reason}, blocks={len(response.content)}")
             text_output = []
             tool_results = []
 
             for block in response.content:
-                if block.type == "text":
+                if block.type == "thinking":
+                    preview = block.thinking[:200].replace("\n", " ")
+                    _track("thinking", preview + ("…" if len(block.thinking) > 200 else ""))
+                elif block.type == "text":
                     text_output.append(block.text)
                 elif block.type == "tool_use":
                     result = _dispatch_tool(block.name, block.input)
@@ -121,19 +179,33 @@ def run():
                     })
 
             if text_output:
-                print(f"\nAssistant: {''.join(text_output)}\n")
+                joined = "".join(text_output)
+                print(f"\nAssistant: {joined}\n")
+                _log_message("assistant", joined)
 
             if response.stop_reason == "end_turn":
-                # Append assistant response to history (text only for readability)
                 assistant_text = "".join(text_output)
                 messages.append({"role": "assistant", "content": assistant_text})
                 break
 
-            if response.stop_reason == "tool_use":
+            elif response.stop_reason == "tool_use":
                 # Append full assistant response (with tool_use blocks) then tool results
                 messages.append({"role": "assistant", "content": response.content})
                 messages.append({"role": "user", "content": tool_results})
                 # Loop continues to get Claude's synthesis of the tool results
+
+            elif response.stop_reason == "max_tokens":
+                # Response was cut off — surface it rather than silently re-triggering
+                print("\n[Response truncated — output hit the token limit]\n")
+                _track("max_tokens", "response truncated, breaking loop")
+                assistant_text = "".join(text_output)
+                messages.append({"role": "assistant", "content": assistant_text})
+                break
+
+            else:
+                # Unknown stop reason — log and bail to avoid an infinite loop
+                _track("unknown stop_reason", response.stop_reason)
+                break
 
 
 if __name__ == "__main__":

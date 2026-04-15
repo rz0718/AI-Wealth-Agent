@@ -11,6 +11,14 @@ def _bq_client() -> bigquery.Client:
     return bigquery.Client(project=BQ_PROJECT)
 
 
+def _table(name: str) -> str:
+    return f"`{BQ_PROJECT}.{BQ_DATASET}.{name}`"
+
+
+def _user_id_param(user_id: str) -> bigquery.ScalarQueryParameter:
+    return bigquery.ScalarQueryParameter("user_id", "INT64", int(user_id))
+
+
 def _thirty_days_ago() -> str:
     return (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
 
@@ -29,18 +37,18 @@ def handle_get_trade_history(
 
     query = f"""
         SELECT created, asset_type, asset_subtype, product, activity, ref_id, is_aum
-        FROM `{BQ_DATASET}.detail_all_transactions_daily`
+        FROM {_table("detail_all_transactions_daily")}
         WHERE user_id = @user_id
-          AND created >= @start_date
+          AND DATE(created) >= @start_date
     """
     params = [
-        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
-        bigquery.ScalarQueryParameter("start_date", "STRING", start_date),
+        _user_id_param(user_id),
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
     ]
 
     if end_date:
-        query += " AND created <= @end_date"
-        params.append(bigquery.ScalarQueryParameter("end_date", "STRING", end_date))
+        query += " AND DATE(created) <= @end_date"
+        params.append(bigquery.ScalarQueryParameter("end_date", "DATE", end_date))
 
     if asset_type:
         query += " AND asset_type = @asset_type"
@@ -66,19 +74,19 @@ def handle_get_realised_pnl_transactions(
 
     query = f"""
         SELECT day, created, asset_type, asset_subtype, product,
-               transaction_type, activity, realised_gain_idr, realised_gain_usd
-        FROM `{BQ_DATASET}.detail_all_user_realised_return_by_trx_daily`
+               transaction_type, activity, realised_gain_idr
+        FROM {_table("detail_all_user_realised_return_by_trx_daily")}
         WHERE user_id = @user_id
-          AND created >= @start_date
+          AND DATE(created) >= @start_date
     """
     params = [
-        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
-        bigquery.ScalarQueryParameter("start_date", "STRING", start_date),
+        _user_id_param(user_id),
+        bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
     ]
 
     if end_date:
-        query += " AND created <= @end_date"
-        params.append(bigquery.ScalarQueryParameter("end_date", "STRING", end_date))
+        query += " AND DATE(created) <= @end_date"
+        params.append(bigquery.ScalarQueryParameter("end_date", "DATE", end_date))
 
     if asset_type:
         query += " AND asset_type = @asset_type"
@@ -98,13 +106,13 @@ def handle_get_aggregate_pnl_summary(days_back: int = 7) -> str:
     query = f"""
         SELECT day, realisedGainValue, unrealisedGainValue, overallGainValue,
                realised_gain_daily, unrealised_gain_daily, overall_gain_daily
-        FROM `{BQ_DATASET}.agg_user_realised_unrealised_gain_daily`
+        FROM {_table("agg_user_realised_unrealised_gain_daily")}
         WHERE user_id = @user_id
           AND day >= DATE_SUB(CURRENT_DATE(), INTERVAL @days_back DAY)
         ORDER BY day DESC
     """
     params = [
-        bigquery.ScalarQueryParameter("user_id", "STRING", user_id),
+        _user_id_param(user_id),
         bigquery.ScalarQueryParameter("days_back", "INT64", days_back),
     ]
 
@@ -119,10 +127,10 @@ def handle_get_current_positions(asset_type: str = None) -> str:
 
     query = f"""
         SELECT asset_type, product, product_aum, total_aum, percent, unrealized_return
-        FROM `{BQ_DATASET}.detail_user_latest_unrealised_return_daily`
+        FROM {_table("detail_user_latest_unrealised_return_daily")}
         WHERE user_id = @user_id
     """
-    params = [bigquery.ScalarQueryParameter("user_id", "STRING", user_id)]
+    params = [_user_id_param(user_id)]
 
     if asset_type:
         query += " AND asset_type = @asset_type"

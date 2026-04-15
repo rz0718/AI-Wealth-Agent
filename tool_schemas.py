@@ -37,7 +37,8 @@ TOOL_SCHEMAS = [
         "description": (
             "Retrieves the realized profit or loss for individual trades. "
             "Use this when the user asks 'how much did I make when I sold my BTC?' or "
-            "'show my dividend payouts.' Defaults to the last 30 days."
+            "'show my dividend payouts.' Defaults to the last 30 days. "
+            "All gain values are in IDR (Indonesian Rupiah). Always display as 'Rp X'."
         ),
         "input_schema": {
             "type": "object",
@@ -62,7 +63,8 @@ TOOL_SCHEMAS = [
         "description": (
             "Retrieves a daily time-series summary of the user's overall portfolio performance, "
             "showing total realized and unrealized gains. "
-            "Use this to answer 'how did my portfolio perform over the last month?'"
+            "Use this to answer 'how did my portfolio perform over the last month?' "
+            "All gain values are in IDR (Indonesian Rupiah). Always display as 'Rp X'."
         ),
         "input_schema": {
             "type": "object",
@@ -78,7 +80,10 @@ TOOL_SCHEMAS = [
         "name": "get_current_positions",
         "description": (
             "Retrieves the user's current holdings, total value (AUM), and latest unrealized returns. "
-            "Use this for 'what is in my portfolio right now?' or 'what are my open positions?'"
+            "Use this for 'what is in my portfolio right now?' or 'what are my open positions?' "
+            "product_aum and total_aum are in IDR (Indonesian Rupiah). Display as 'Rp X'. "
+            "percent is a portfolio weight (0-100), not a currency. "
+            "unrealized_return is in IDR."
         ),
         "input_schema": {
             "type": "object",
