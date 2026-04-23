@@ -23,7 +23,12 @@ TOOL_SCHEMAS = [
                 },
                 "asset_type": {
                     "type": "string",
-                    "description": "Filter by asset class, e.g. 'crypto', 'stock_index', 'gold'.",
+                    "description": (
+                        "Filter by asset class. Valid values: 'crypto', 'crypto_futures', "
+                        "'crypto_wallet', 'fx', 'gold', 'gss' (US/global stocks), "
+                        "'idss' (Indonesian stocks), 'mfund' (mutual funds), "
+                        "'options', 'stock_index'."
+                    ),
                 },
                 "limit": {
                     "type": "integer",
@@ -53,7 +58,11 @@ TOOL_SCHEMAS = [
                 },
                 "asset_type": {
                     "type": "string",
-                    "description": "Filter by asset class.",
+                    "description": (
+                        "Filter by asset class. Valid values: 'crypto', 'fx', 'gold', "
+                        "'gss' (US/global stocks), 'idss' (Indonesian stocks), "
+                        "'mfund' (mutual funds), 'options', 'stock_index'."
+                    ),
                 },
             },
         },
@@ -90,7 +99,12 @@ TOOL_SCHEMAS = [
             "properties": {
                 "asset_type": {
                     "type": "string",
-                    "description": "Filter to only show positions in a specific asset class.",
+                    "description": (
+                        "Filter to only show positions in a specific asset class. "
+                        "Valid values: 'crypto', 'crypto_futures', 'fx', 'gold', "
+                        "'gss' (US/global stocks), 'gss_leverage', 'idss' (Indonesian stocks), "
+                        "'mfund' (mutual funds), 'options', 'cash'."
+                    ),
                 },
             },
         },

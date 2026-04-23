@@ -23,12 +23,39 @@ def _thirty_days_ago() -> str:
     return (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
 
 
+ASSET_TYPE_ALIASES = {
+    # US/global stocks — explicit geographic intent only
+    "us_stock": "gss",
+    "us_stocks": "gss",
+    "global_stock": "gss",
+    "global_stocks": "gss",
+    # Indonesian stocks — explicit geographic intent only
+    "id_stock": "idss",
+    "id_stocks": "idss",
+    "indonesian_stock": "idss",
+    # Unambiguous aliases
+    "mutual_fund": "mfund",
+    "mutual_funds": "mfund",
+    "fund": "mfund",
+    "futures": "crypto_futures",
+    "crypto_future": "crypto_futures",
+}
+
+
+def _normalize_asset_type(asset_type: str | None) -> str | None:
+    if not asset_type:
+        return None
+    key = asset_type.lower().replace(" ", "_").replace("-", "_")
+    return ASSET_TYPE_ALIASES.get(key, asset_type)
+
+
 def handle_get_trade_history(
     start_date: str = None,
     end_date: str = None,
     asset_type: str = None,
     limit: int = 50,
 ) -> str:
+    asset_type = _normalize_asset_type(asset_type)
     user_id = get_secure_user_id()
     client = _bq_client()
 
@@ -66,6 +93,7 @@ def handle_get_realised_pnl_transactions(
     end_date: str = None,
     asset_type: str = None,
 ) -> str:
+    asset_type = _normalize_asset_type(asset_type)
     user_id = get_secure_user_id()
     client = _bq_client()
 
@@ -122,6 +150,7 @@ def handle_get_aggregate_pnl_summary(days_back: int = 7) -> str:
 
 
 def handle_get_current_positions(asset_type: str = None) -> str:
+    asset_type = _normalize_asset_type(asset_type)
     user_id = get_secure_user_id()
     client = _bq_client()
 

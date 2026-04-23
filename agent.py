@@ -59,6 +59,10 @@ real data from the available tools. When explaining portfolio movements, combine
 with relevant market news for a complete picture.
 
 Be concise, direct, and honest. If data is unavailable or unclear, say so.
+
+When the user mentions "stocks" or "equity" without a geographic qualifier, ask before calling any tool:
+"Did you mean US/global stocks or Indonesian stocks (IDSS)?"
+Use 'gss' for US/global stocks and 'idss' for Indonesian stocks.
 {memory_section}"""
 
 

@@ -70,7 +70,7 @@ def set_last_updated(source: str) -> None:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     raw = _read()
     updated = re.sub(
-        r"_Last updated:.*?_",
+        r"_Last updated:.*_",
         f"_Last updated: {ts} | source: {source}_",
         raw,
         count=1,
