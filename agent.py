@@ -8,13 +8,13 @@ Requires a .env file with:
     ANTHROPIC_API_KEY, CURRENT_USER_ID, BQ_PROJECT
 """
 import json
-import os
 from datetime import datetime
 from pathlib import Path
 
 import anthropic
 
 from config import ANTHROPIC_API_KEY
+from memory.memory_manager import append_observation, load_memory, set_last_updated
 from tool_registry import TOOL_HANDLERS
 from tool_schemas import TOOL_SCHEMAS
 
@@ -48,7 +48,6 @@ def _log_message(role: str, content: str) -> None:
     _log_file.write(f"\n{ts}  [{role}]\n{content}\n{'─' * 60}\n")
 
 MODEL = "claude-sonnet-4-6"
-MEMORY_FILE = Path(__file__).parent / "memory" / "user_memory.md"
 SKILL_INDEX_FILE = Path(__file__).parent / "skills" / "index.md"
 
 SYSTEM_PROMPT = """You are a personalized financial analyst for this user.
@@ -72,13 +71,58 @@ def _load_skill_index() -> str:
     return f"\n\n--- Expert Frameworks (use load_skill to access full methodology) ---\n{content}\n---"
 
 
-def _load_memory() -> str:
-    if not MEMORY_FILE.exists():
-        return ""
-    content = MEMORY_FILE.read_text().strip()
-    if not content:
-        return ""
-    return f"\n\n--- User Profile (learned from past conversations) ---\n{content}\n---"
+def _summarize_session(messages: list, client: anthropic.Anthropic) -> None:
+    """Extract behavioral signals from the conversation and persist to user_memory.md."""
+    if len(messages) < 4:
+        return  # not enough content to profile
+
+    # Flatten messages to plain text for the extraction prompt
+    transcript_lines = []
+    for m in messages:
+        role = m["role"].upper()
+        content = m["content"]
+        if isinstance(content, str):
+            transcript_lines.append(f"{role}: {content}")
+        # skip tool_use/tool_result blocks — not useful for behavioral profiling
+
+    transcript = "\n".join(transcript_lines)
+
+    try:
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=256,
+            system=(
+                "You are a behavioral profiler for a trading app. "
+                "Given a conversation transcript, output ONLY valid JSON with keys: "
+                '"asset_interests" (list of asset class strings the user focused on), '
+                '"signals" (list of short behavioral signal strings observed in the conversation, max 3). '
+                "Be concise. No explanation outside the JSON."
+            ),
+            messages=[{"role": "user", "content": f"Transcript:\n{transcript}"}],
+        )
+        raw = resp.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        data = json.loads(raw)
+    except Exception as e:
+        _track("memory", f"extraction failed: {e}")
+        return
+
+    asset_interests = [a.strip() for a in (data.get("asset_interests") or []) if a.strip()]
+    signals = [s.strip() for s in (data.get("signals") or []) if s.strip()]
+
+    obs_parts = []
+    if asset_interests:
+        obs_parts.append(f"asked about: {', '.join(asset_interests)}")
+    if signals:
+        obs_parts.append("; ".join(signals))
+    if obs_parts:
+        append_observation(", ".join(obs_parts))
+
+    set_last_updated("conversation")
+    _track("memory", "observation appended from session")
 
 
 def _dispatch_tool(tool_name: str, tool_input: dict) -> str:
@@ -119,12 +163,14 @@ def run():
             user_input = input("You: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\nGoodbye.")
+            _summarize_session(messages, client)
             if _log_file:
                 _log_file.close()
             break
 
         if user_input.lower() in ("quit", "exit", "q"):
-            print("Goodbye.")
+            _summarize_session(messages, client)
+            print("Profile updated. Goodbye.")
             if _log_file:
                 _log_file.close()
             break
@@ -135,7 +181,7 @@ def run():
         _log_message("user", user_input)
         messages.append({"role": "user", "content": user_input})
 
-        memory_section = _load_memory()
+        memory_section = load_memory()
         skill_index = _load_skill_index()
         system = SYSTEM_PROMPT.format(memory_section=memory_section + skill_index)
 
